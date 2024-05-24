@@ -8,3 +8,4 @@ elevenlabs
 streamlit
 mutagen
 azure-cognitiveservices-vision-computervision
+openai

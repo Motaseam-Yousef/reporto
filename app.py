@@ -2,8 +2,6 @@ import os
 import io
 import streamlit as st
 from dotenv import load_dotenv
-# Assuming ElevenLabs is a valid library that you have access to.
-# from elevenlabs.client import ElevenLabs
 import google.generativeai as genai
 from PIL import Image
 from azure.cognitiveservices.vision.computervision import ComputerVisionClient
@@ -13,14 +11,17 @@ import warnings
 import requests
 from io import BytesIO
 import time
+from openai import OpenAI
+import base64
 
 # Ignore specific warnings from pydub
 warnings.filterwarnings("ignore", message="Couldn't find ffmpeg or avconv - defaulting to ffmpeg, but may not work", category=RuntimeWarning, module='pydub.utils')
 
+## Set the API key
 def main():
     # Load environment variables
     load_dotenv()
-
+    
     # Streamlit app setup
     st.title("Reporto")
     st.markdown("##### Skip the Wait, Not the Detail: Fast AI Lab Analysis")
@@ -30,6 +31,8 @@ def main():
     """)
 
     # Azure credentials
+    openai_api = os.getenv('OPENAI_API')
+    openai_client = OpenAI(api_key=openai_api)
     azure_key = os.getenv('AZURE_VISION_KEY')
     azure_endpoint = os.getenv('AZURE_ENDPOINT')
     credentials = CognitiveServicesCredentials(azure_key)
@@ -85,6 +88,27 @@ def main():
             st.error(f"Failed to generate content: {e}")
             return None
 
+    def generate_gpt_content(image_path):
+        # Encode the image as a base64 string
+        with open(image_path, "rb") as image_file:
+            base64_image = base64.b64encode(image_file.read()).decode("utf-8")
+
+        response = openai_client.chat.completions.create(
+        model='gpt-4o',
+        messages=[
+        {"role": "system", "content": "You are a helpful assistant in healthcare and medical reports and images"},
+        {"role": "user", "content": [
+            {"type": "text", "text": '''If this image is a medical report please analyze it and provide a detailed explanation of whether the results are good or not. Explain the reasons behind your assessment, including any specific findings such as "1) 2) etc" and provide more detailed results. Additionally, offer recommendations based on your analysis, finally always sure to say "الرجاء التواصل مع طبيب لمعلومات أكثر" Answer ONLY in Arabic.
+        else (The given Text not related to any medical information) then reponse "لا يمكنني المساعدة بذلك'''},
+            {"type": "image_url", "image_url": {
+                "url": f"data:image/png;base64,{base64_image}"}
+            }
+        ]}
+    ],
+    temperature=0.0,
+)
+        return response.choices[0].message.content
+
     img_file_buffer = st.file_uploader("Upload an image (jpg, png, jpeg):", type=["jpg", "png", "jpeg"])
 
     if st.button("Generate Report"):
@@ -92,13 +116,24 @@ def main():
             # Convert the file buffer to an image object
             image_stream = BytesIO(img_file_buffer.getvalue())
 
+            # Save image to a temporary file
+            temp_image_path = "temp_image.png"
+            with open(temp_image_path, "wb") as temp_image_file:
+                temp_image_file.write(img_file_buffer.getvalue())
+
             # Generate content based on text and image
             processed_text = generate_content(image_stream)
+            gpt_response = generate_gpt_content(temp_image_path)
 
             if processed_text:
                 # Display the result from generate_content
+                st.markdown("### Doctor Ahmad")
                 st.markdown(f"<div style='direction: rtl; text-align: right;'>{processed_text[0]}</div>", unsafe_allow_html=True)
                 st.markdown(f"Extracted text: {processed_text[1]}")
+                
+                # Display the result from GPT response
+                st.markdown("### Doctor Mohammad")
+                st.markdown(f"<div style='direction: rtl; text-align: right;'>{gpt_response}</div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
